@@ -9,8 +9,13 @@
 *.user
 *.userosscache
 *.sln.docstates
-games
+games/*
 x64
+.gitignore
+*.sln
+*.vcxproj
+*.filters
+.gitattributes
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
