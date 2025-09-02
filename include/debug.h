@@ -5,10 +5,8 @@
 
 typedef enum DEBUG_KEY_INDEX
 {
-	DEBUG_ENABLED,
 	DEBUG_STEP_BY_STEP,
 	DEBUG_NEXT_STEP,
-	DEBUG_SHOW_STATE,
 	NUM_DEBUG_OPTIONS
 }DEBUG_KEY_INDEX;
 
@@ -28,3 +26,4 @@ typedef struct DEBUG DEBUG;
 DEBUG* create_debug(MACHINE* machine);
 void delete_debug(DEBUG* debug);
 void start_debug_thread(DEBUG* debug);
+void end_debug_thread(DEBUG* debug);

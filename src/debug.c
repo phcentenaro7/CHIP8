@@ -20,10 +20,9 @@ static DEBUG_SETTINGS create_default_debug_settings()
 	debug_settings.font_size = 12;
 	debug_settings.text_color = al_map_rgb(255, 255, 255);
 	debug_settings.text_font = al_load_ttf_font("resources/UbuntuMono[wght].ttf", 18, 0);
-	debug_settings.keys[DEBUG_ENABLED] = ALLEGRO_KEY_J;
 	debug_settings.keys[DEBUG_STEP_BY_STEP] = ALLEGRO_KEY_K;
 	debug_settings.keys[DEBUG_NEXT_STEP] = ALLEGRO_KEY_L;
-	debug_settings.options[DEBUG_STEP_BY_STEP] = true;
+	debug_settings.options[DEBUG_STEP_BY_STEP] = false;
 	debug_settings.display_width = 400;
 	debug_settings.display_height = 400;
 	return debug_settings;
@@ -33,13 +32,9 @@ DEBUG* create_debug(MACHINE* machine)
 {
 	DEBUG* debug = calloc(1, sizeof(DEBUG));
 	assert(debug);
-	debug->on = true;
+	debug->on = false;
 	debug->settings = create_default_debug_settings();
 	debug->machine = machine;
-	debug->thread = al_create_thread(handle_events, debug);
-	debug->display = al_create_display(debug->settings.display_width, debug->settings.display_height);
-	assert(debug->display);
-	al_set_window_title(debug->display, "C8 DEBUG");
 	debug->refresh_timer = al_create_timer(1 / 30.0);
 	assert(debug->refresh_timer);
 	al_start_timer(debug->refresh_timer);
@@ -53,16 +48,18 @@ DEBUG* create_debug(MACHINE* machine)
 
 void delete_debug(DEBUG* debug)
 {
-	debug->on = false;
-	al_join_thread(debug->thread, NULL);
 	al_destroy_mutex(debug->event_mutex);
 	al_destroy_event_queue(debug->event_queue);
 	al_destroy_display(debug->display);
 }
 
-static void* handle_events(ALLEGRO_THREAD* thread, void* debug)
+static void* handle_events(void* debug)
 {
 	DEBUG* dbg = debug;
+	dbg->on = true;
+	dbg->display = al_create_display(dbg->settings.display_width, dbg->settings.display_height);
+	assert(dbg->display);
+	al_set_window_title(dbg->display, "C8 DEBUG");
 	ALLEGRO_EVENT event;
 	while (dbg->on)
 	{
@@ -72,6 +69,7 @@ static void* handle_events(ALLEGRO_THREAD* thread, void* debug)
 		handle_keyboard_events(debug, event);
 		al_unlock_mutex(dbg->event_mutex);
 	}
+	al_destroy_display(dbg->display);
 }
 
 static void handle_timer_events(DEBUG* debug, ALLEGRO_EVENT event)
@@ -103,7 +101,12 @@ static void handle_keyboard_events(DEBUG* debug, ALLEGRO_EVENT event)
 
 void start_debug_thread(DEBUG* debug)
 {
-	al_start_thread(debug->thread);
+	al_run_detached_thread(handle_events, debug);
+}
+
+void end_debug_thread(DEBUG* debug)
+{
+	debug->on = false;
 }
 
 static void draw_debug_text(DEBUG* debug)
@@ -121,7 +124,6 @@ static void draw_debug_text(DEBUG* debug)
 		al_get_font_line_height(debug->settings.text_font) + 10,
 		0,
 		"DEBUG WINDOW\n"
-		"ON: %s\n"
 		"STEP BY STEP: %s\n"
 		"OPCODE: %s\n"
 		"PC: %04hX I: %04hX S: %04hX\n"
@@ -129,8 +131,9 @@ static void draw_debug_text(DEBUG* debug)
 		"V0: %02hhX V1: %02hhX V2: %02hhX V3: %02hhX\n"
 		"V4: %02hhX V5: %02hhX V6: %02hhX V7: %02hhX\n"
 		"V8: %02hhX V9: %02hhX VA: %02hhX VB: %02hhX\n"
-		"VC: %02hhX VD: %02hhX VE: %02hhX VF: %02hhX\n",
-		BOOL_STR(debug->settings.options[DEBUG_ENABLED]),
+		"VC: %02hhX VD: %02hhX VE: %02hhX VF: %02hhX\n"
+		"Waiting for input: %s\n"
+		"Input received: %s",
 		BOOL_STR(debug->settings.options[DEBUG_STEP_BY_STEP]),
 		asm_text,
 		machine->pc_reg, machine->i_reg, machine->s_reg,
@@ -138,6 +141,8 @@ static void draw_debug_text(DEBUG* debug)
 		machine->v_reg[0], machine->v_reg[1], machine->v_reg[2], machine->v_reg[3],
 		machine->v_reg[4], machine->v_reg[5], machine->v_reg[6], machine->v_reg[7],
 		machine->v_reg[8], machine->v_reg[9], machine->v_reg[10], machine->v_reg[11],
-		machine->v_reg[12], machine->v_reg[13], machine->v_reg[14], machine->v_reg[15]);
+		machine->v_reg[12], machine->v_reg[13], machine->v_reg[14], machine->v_reg[15],
+		BOOL_STR(debug->machine->waiting_for_input),
+		BOOL_STR(debug->machine->input_received));
 	al_flip_display();
 }
