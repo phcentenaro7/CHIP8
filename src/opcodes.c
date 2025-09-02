@@ -2,6 +2,48 @@
 #include "struct_machine.h"
 #include "struct_debug.h"
 
+static void op_push_to_stack(MACHINE* machine);
+static void op_jump(MACHINE* machine, uint16_t opcode);
+static void op_do_if_not_equal_to_constant(MACHINE* machine, uint16_t opcode);
+static void op_do_if_equal_to_constant(MACHINE* machine, uint16_t opcode);
+static void op_do_if_not_equal_to_variable(MACHINE* machine, uint16_t opcode);
+static void op_do_if_equal_to_variable(MACHINE* machine, uint16_t opcode);
+static void op_assign_constant(MACHINE* machine, uint16_t opcode);
+static void op_add_constant(MACHINE* machine, uint16_t opcode);
+static void op_assign_to_i(MACHINE* machine, uint16_t opcode);
+static void op_assign_to_pc(MACHINE* machine, uint16_t opcode);
+static void op_assign_random(MACHINE* machine, uint16_t opcode);
+static void op_do_if_key_not_pressed(MACHINE* machine, uint16_t opcode);
+static void op_do_if_key_pressed(MACHINE* machine, uint16_t opcode);
+static void op_handle_key_presses(MACHINE* machine, uint16_t opcode);
+static void op_assign_from_d_counter(MACHINE* machine, uint16_t opcode);
+static void op_wait_for_key_press(MACHINE* machine, uint16_t opcode);
+static void op_assign_to_d_counter(MACHINE* machine, uint16_t opcode);
+static void op_assign_to_s_counter(MACHINE* machine, uint16_t opcode);
+static void op_add_to_i(MACHINE* machine, uint16_t opcode);
+static void op_assign_char_address_to_i(MACHINE* machine, uint16_t opcode);
+static void op_store_bcd(MACHINE* machine, uint16_t opcode);
+static void op_store_registers(MACHINE* machine, uint16_t opcode);
+static void op_load_registers(MACHINE* machine, uint16_t opcode);
+static void op_handle_special_registers(MACHINE* machine, uint16_t opcode);
+static void op_assign(MACHINE* machine, uint16_t opcode);
+static void op_or(MACHINE* machine, uint16_t opcode);
+static void op_and(MACHINE* machine, uint16_t opcode);
+static void op_xor(MACHINE* machine, uint16_t opcode);
+static void op_add(MACHINE* machine, uint16_t opcode);
+static void op_sub(MACHINE* machine, uint16_t opcode);
+static void op_shift_right(MACHINE* machine, uint16_t opcode);
+static void op_distance(MACHINE* machine, uint16_t opcode);
+static void op_shift_left(MACHINE* machine, uint16_t opcode);
+static void op_handle_variable_arithmetic(MACHINE* machine, uint16_t opcode);
+static void op_return_from_subroutine(MACHINE* machine, uint16_t opcode);
+static void op_clear_screen(MACHINE* machine, uint16_t opcode);
+static void op_handle_base_instructions(MACHINE* machine, uint16_t opcode);
+static void op_draw_sprite(MACHINE* machine, uint16_t opcode);
+uint16_t fetch_opcode(MACHINE* machine);
+void execute_opcode(MACHINE* machine, uint16_t opcode);
+void opcode_to_string(char* buffer, uint16_t opcode);
+
 static void op_push_to_stack(MACHINE* machine)
 {
 	STEP_BACK(machine->s_reg);
@@ -122,10 +164,19 @@ static void op_wait_for_key_press(MACHINE* machine, uint16_t opcode)
 	ALLEGRO_EVENT event;
 	ALLEGRO_EVENT_QUEUE* event_queue = al_create_event_queue();
 	al_register_event_source(event_queue, al_get_keyboard_event_source());
+	al_register_event_source(event_queue, al_get_display_event_source(machine->display));
 	bool done = false;
 	while (!done)
 	{
 		al_wait_for_event(event_queue, &event);
+		if (event.type == ALLEGRO_EVENT_DISPLAY_CLOSE)
+		{
+			if (event.display.source == machine->display)
+			{
+				machine->on = false;
+				done = true;
+			}
+		}
 		if (event.type != ALLEGRO_EVENT_KEY_DOWN)
 		{
 			continue;
