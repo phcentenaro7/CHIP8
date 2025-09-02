@@ -28,4 +28,3 @@ typedef struct DEBUG DEBUG;
 DEBUG* create_debug(MACHINE* machine);
 void delete_debug(DEBUG* debug);
 void start_debug_thread(DEBUG* debug);
-void delete_debug_thread(DEBUG* debug);
