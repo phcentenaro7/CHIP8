@@ -1,4 +1,5 @@
 ﻿#include <stdio.h>
+#include <allegro5/allegro_native_dialog.h>
 #include "struct_machine.h"
 #include "struct_debug.h"
 
@@ -161,40 +162,29 @@ static void op_assign_from_d_counter(MACHINE* machine, uint16_t opcode)
 static void op_wait_for_key_press(MACHINE* machine, uint16_t opcode)
 {
 	uint8_t* vx = &(machine->v_reg[GET_X(opcode)]);
-	ALLEGRO_EVENT event;
-	ALLEGRO_EVENT_QUEUE* event_queue = al_create_event_queue();
-	al_register_event_source(event_queue, al_get_keyboard_event_source());
-	al_register_event_source(event_queue, al_get_display_event_source(machine->display));
-	bool done = false;
-	while (!done)
+	if (!machine->waiting_for_input)
 	{
-		al_wait_for_event(event_queue, &event);
-		if (event.type == ALLEGRO_EVENT_DISPLAY_CLOSE)
-		{
-			if (event.display.source == machine->display)
-			{
-				machine->on = false;
-				done = true;
-			}
-		}
-		if (event.type != ALLEGRO_EVENT_KEY_DOWN)
-		{
-			continue;
-		}
+		machine->waiting_for_input = true;
+		STEP_BACK(machine->pc_reg);
+		return;
+	}
+	else if(machine->input_received)
+	{
 		for (uint8_t i = 0; i < KEYPAD_HEIGHT; i++)
 		{
 			for (uint8_t j = 0; j < KEYPAD_WIDTH; j++)
 			{
-				if (machine->keypad[i][j].keycode == event.keyboard.keycode)
+				if (machine->key_pressed[machine->keypad[i][j].value])
 				{
 					*vx = machine->keypad[i][j].value;
-					done = true;
+					machine->input_received = false;
+					machine->waiting_for_input = false;
+					STEP(machine->pc_reg);
+					return;
 				}
 			}
 		}
 	}
-	al_unregister_event_source(event_queue, al_get_keyboard_event_source());
-	al_destroy_event_queue(event_queue);
 }
 
 static void op_assign_to_d_counter(MACHINE* machine, uint16_t opcode)
@@ -436,16 +426,27 @@ static void op_draw_sprite(MACHINE* machine, uint16_t opcode)
 	uint8_t n = GET_N(opcode);
 	uint8_t row_count = 0;
 	*vf = 0;
-	while (row_count < n && y < NUM_PIXEL_ROWS)
+	while (row_count < n)
 	{
 		uint8_t sprite_row = machine->RAM[machine->i_reg + row_count];
 		uint64_t row_data = (uint64_t)sprite_row << 56;
 		row_data >>= x;
-		/*if (x > 56)
+		if (machine->y_wrap_enabled && x > 56)
 		{
 			uint8_t x_wrap_sprite = sprite_row << (64 - x);
 			row_data |= (uint64_t)x_wrap_sprite << 56;
-		}*/
+		}
+		if (y >= NUM_PIXEL_ROWS)
+		{
+			if (machine->y_wrap_enabled)
+			{
+				y = 0;
+			}
+			else
+			{
+				break;
+			}
+		}
 		if (*vf == 0)
 		{
 			*vf = (machine->pixel_row[y] & row_data) > 0;
@@ -461,7 +462,7 @@ uint16_t fetch_opcode(MACHINE* machine)
 	uint16_t opcode = *(uint16_t*)(machine->RAM + machine->pc_reg);
 	opcode = ((opcode >> 8) & 0x00FF) | (opcode << 8);
 	machine->current_opcode = opcode;
-	if (machine->debug->settings.options[DEBUG_ENABLED] && machine->debug->settings.options[DEBUG_STEP_BY_STEP])
+	if (machine->debug->on && machine->debug->settings.options[DEBUG_STEP_BY_STEP])
 	{
 		if (!machine->debug->settings.options[DEBUG_NEXT_STEP])
 		{
@@ -469,7 +470,10 @@ uint16_t fetch_opcode(MACHINE* machine)
 		}
 		machine->debug->settings.options[DEBUG_NEXT_STEP] = false;
 	}
-	STEP(machine->pc_reg);
+	if (!machine->waiting_for_input)
+	{
+		STEP(machine->pc_reg);
+	}
 	return opcode;
 }
 
