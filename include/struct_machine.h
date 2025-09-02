@@ -48,6 +48,9 @@
 typedef struct MACHINE
 {
 	bool on;
+	bool waiting_for_input;
+	bool input_received;
+	bool y_wrap_enabled;
 	int8_t RAM[RAM_SIZE];
 	uint16_t pc_reg; //program counter
 	uint16_t i_reg; //index
@@ -57,6 +60,7 @@ typedef struct MACHINE
 	uint8_t v_reg[NUM_V_REGS]; //variables
 	uint64_t pixel_row[NUM_PIXEL_ROWS]; //screen
 	uint16_t current_opcode;
+	char* program_name;
 	INPUT_KEY** keypad;
 	bool key_pressed[KEYPAD_WIDTH * KEYPAD_HEIGHT];
 	ALLEGRO_TIMER* counter_timer;
