@@ -19,6 +19,7 @@
 #include <time.h>
 
 static void prepare_display(MACHINE* machine, DISPLAY_OPTIONS display_options);
+static void prepare_window_options(MACHINE* machine);
 static void prepare_bitmaps(MACHINE* machine, DISPLAY_OPTIONS display_options);
 static void prepare_timers(MACHINE* machine);
 static void prepare_audio(MACHINE* machine);
@@ -28,6 +29,17 @@ static void update_counters(MACHINE* machine);
 static void handle_timer_events(MACHINE* machine, ALLEGRO_EVENT event);
 static void handle_keypad_events(MACHINE* machine, ALLEGRO_EVENT event);
 static void handle_display_events(MACHINE* machine, ALLEGRO_EVENT event);
+static void reset(MACHINE* machine);
+static void toggle_debug(MACHINE* machine, ALLEGRO_EVENT event);
+static void clear_registers(MACHINE* machine);
+
+static enum
+{
+	MENU_OPTIONS_ID = 1,
+	MENU_RESET_ID,
+	MENU_DEBUG_ID,
+	MENU_WRAP_Y_AXIS_ID
+};
 
 bool start_allegro()
 {
@@ -61,6 +73,21 @@ static void prepare_display(MACHINE* machine, DISPLAY_OPTIONS display_options)
 	machine->display = al_create_display(DEFAULT_DISPLAY_WIDTH * display_options.scale, DEFAULT_DISPLAY_HEIGHT * display_options.scale);
 	assert(machine->display);
 	al_set_window_title(machine->display, "C8 - CHIP8 Emulator");
+}
+
+static void prepare_window_options(MACHINE* machine)
+{
+	ALLEGRO_MENU_INFO menu_info[] =
+	{
+		ALLEGRO_START_OF_MENU("Options", MENU_OPTIONS_ID),
+		{ "Reset", MENU_RESET_ID, 0, NULL},
+		{ "Debug window", MENU_DEBUG_ID, ALLEGRO_MENU_ITEM_CHECKBOX, NULL },
+		{ "Wrap Y axis", MENU_WRAP_Y_AXIS_ID, ALLEGRO_MENU_ITEM_CHECKBOX, NULL },
+		ALLEGRO_END_OF_MENU,
+		ALLEGRO_END_OF_MENU
+	};
+	ALLEGRO_MENU* display_menu = al_build_menu(menu_info);
+	al_set_display_menu(machine->display, display_menu);
 }
 
 static void prepare_bitmaps(MACHINE* machine, DISPLAY_OPTIONS display_options)
@@ -102,6 +129,7 @@ static void prepare_event_queue(MACHINE* machine)
 	al_register_event_source(machine->event_queue, al_get_display_event_source(machine->display));
 	al_register_event_source(machine->event_queue, al_get_timer_event_source(machine->counter_timer));
 	al_register_event_source(machine->event_queue, al_get_timer_event_source(machine->opcode_timer));
+	al_register_event_source(machine->event_queue, al_get_default_menu_event_source());
 }
 
 MACHINE* create_machine(DISPLAY_OPTIONS display_options)
@@ -109,8 +137,9 @@ MACHINE* create_machine(DISPLAY_OPTIONS display_options)
 	MACHINE* machine = calloc(sizeof(MACHINE), 1);
 	assert(machine);
 	machine->on = true;
-	machine->pc_reg = PROGRAM_BASE_ADDRESS;
-	machine->s_reg = STACK_BASE_ADDRESS;
+	machine->y_wrap_enabled = false;
+	clear_registers(machine);
+	memset(machine->key_pressed, false, sizeof(bool) * KEYPAD_WIDTH * KEYPAD_HEIGHT);
 
 	uint8_t font[FONT_MEMORY_SIZE] = DEFAULT_FONT_MEMORY_CONTENT;
 	set_font(machine, font);
@@ -119,6 +148,7 @@ MACHINE* create_machine(DISPLAY_OPTIONS display_options)
 	set_keypad(machine, keypad);
 
 	prepare_display(machine, display_options);
+	prepare_window_options(machine);
 	prepare_bitmaps(machine, display_options);
 	prepare_timers(machine);
 	prepare_audio(machine);
@@ -195,6 +225,7 @@ void load_program(MACHINE* machine, const char* file_name)
 	uint16_t opcode = *(uint16_t*)(machine->RAM + machine->pc_reg);
 	opcode = ((opcode >> 8) & 0x00FF) | (opcode << 8);
 	machine->current_opcode = opcode;
+	machine->program_name = file_name;
 }
 
 static void update_display(MACHINE* machine)
@@ -275,6 +306,10 @@ static void handle_keypad_events(MACHINE* machine, ALLEGRO_EVENT event)
 			if (event.keyboard.keycode == machine->keypad[i][j].keycode)
 			{
 				machine->key_pressed[machine->keypad[i][j].value] = (event.type == ALLEGRO_EVENT_KEY_DOWN);
+				if (machine->waiting_for_input && event.type == ALLEGRO_EVENT_KEY_DOWN)
+				{
+					machine->input_received = true;
+				}
 				return;
 			}
 		}
@@ -283,7 +318,7 @@ static void handle_keypad_events(MACHINE* machine, ALLEGRO_EVENT event)
 
 static void handle_display_events(MACHINE* machine, ALLEGRO_EVENT event)
 {
-	if (event.display.source != machine->display)
+	if (event.display.source != machine->display && event.user.data2 != (intptr_t)machine->display)
 	{
 		return;
 	}
@@ -291,19 +326,72 @@ static void handle_display_events(MACHINE* machine, ALLEGRO_EVENT event)
 	{
 	case ALLEGRO_EVENT_DISPLAY_CLOSE:
 		machine->on = false;
+		break;
+	case ALLEGRO_EVENT_MENU_CLICK:
+		switch (event.user.data1)
+		{
+		case MENU_RESET_ID:
+			reset(machine);
+			break;
+		case MENU_DEBUG_ID:
+			toggle_debug(machine, event);
+			break;
+		case MENU_WRAP_Y_AXIS_ID:
+			machine->y_wrap_enabled = al_get_menu_item_flags(al_get_display_menu(machine->display), MENU_WRAP_Y_AXIS_ID) & ALLEGRO_MENU_ITEM_CHECKED;
+			break;
+		}
+	}
+}
+
+static void reset(MACHINE* machine)
+{
+	uint8_t font[FONT_MEMORY_SIZE] = DEFAULT_FONT_MEMORY_CONTENT;
+	set_font(machine, font);
+	clear_registers(machine);
+	load_program(machine, machine->program_name);
+}
+
+static void clear_registers(MACHINE* machine)
+{
+	for (uint8_t i = 0; i < NUM_PIXEL_ROWS; i++)
+	{
+		machine->pixel_row[i] = 0;
+	}
+	for (uint8_t i = 0; i < 0xF; i++)
+	{
+		machine->v_reg[i] = 0;
+	}
+	machine->s_reg = STACK_BASE_ADDRESS;
+	machine->pc_reg = PROGRAM_BASE_ADDRESS;
+	machine->i_reg = 0;
+	machine->d_counter = 0;
+	machine->s_counter = 0;
+	machine->waiting_for_input = 0;
+	machine->input_received = 0;
+}
+
+static void toggle_debug(MACHINE* machine, ALLEGRO_EVENT event)
+{
+	bool checked = al_get_menu_item_flags((ALLEGRO_MENU*)event.user.data3, MENU_DEBUG_ID) & ALLEGRO_MENU_ITEM_CHECKED;
+	if (checked)
+	{
+		start_debug_thread(machine->debug);
+	}
+	else
+	{
+		end_debug_thread(machine->debug);
 	}
 }
 
 void run_program(MACHINE* machine)
 {
-	start_debug_thread(machine->debug);
 	while (machine->on)
 	{
 		ALLEGRO_EVENT event;
 		al_wait_for_event(machine->event_queue, &event);
 		al_lock_mutex(machine->debug->event_mutex);
-		handle_timer_events(machine, event);
 		handle_keypad_events(machine, event);
+		handle_timer_events(machine, event);
 		handle_display_events(machine, event);
 		al_unlock_mutex(machine->debug->event_mutex);
 	}
