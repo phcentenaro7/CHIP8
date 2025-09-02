@@ -12,7 +12,7 @@ int main()
 		.color_off = al_map_rgb(0, 0, 0)
 	};
 	MACHINE* m = create_machine(display_options);
-	load_program(m, "games/Pong (1 player).ch8");
+	load_program(m, "roms/games/Bowling [Gooitzen van der Wal].ch8");
 	run_program(m);
 	delete_machine(m);
 	end_allegro();

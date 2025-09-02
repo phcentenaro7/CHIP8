@@ -1,5 +1,7 @@
 ﻿#pragma once
 #include "machine.h"
+#include "debug.h"
+#include "struct_machine.h"
 #include <allegro5/allegro_audio.h>
 
 #define RAM_SIZE 4096 //Available RAM
@@ -53,6 +55,7 @@ typedef struct MACHINE
 	uint8_t s_counter; //sound timer counter
 	uint8_t v_reg[NUM_V_REGS]; //variables
 	uint64_t pixel_row[NUM_PIXEL_ROWS]; //screen
+	uint16_t current_opcode;
 	INPUT_KEY** keypad;
 	bool key_pressed[KEYPAD_WIDTH * KEYPAD_HEIGHT];
 	ALLEGRO_TIMER* counter_timer;
@@ -65,4 +68,5 @@ typedef struct MACHINE
 	ALLEGRO_SAMPLE_ID beep_id;
 	bool beep_playing;
 	ALLEGRO_EVENT_QUEUE* event_queue;
+	DEBUG* debug;
 }MACHINE;

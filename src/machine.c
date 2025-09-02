@@ -3,12 +3,16 @@
 #include <allegro5/allegro_image.h>
 #include <allegro5/allegro_audio.h>
 #include <allegro5/allegro_acodec.h>
+#include <allegro5/allegro_font.h>
+#include <allegro5/allegro_ttf.h>
+#include <allegro5/allegro_native_dialog.h>
 #include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include "machine.h"
 #include "struct_machine.h"
+#include "struct_debug.h"
 #include "opcodes.h"
 #include <stdio.h>
 #include <stdbool.h>
@@ -22,6 +26,9 @@ bool start_allegro()
 	al_init_acodec_addon();
 	al_init_primitives_addon();
 	al_init_image_addon();
+	al_init_font_addon();
+	al_init_ttf_addon();
+	al_init_native_dialog_addon();
 	return true;
 }
 
@@ -31,6 +38,9 @@ bool end_allegro()
 	al_uninstall_audio();
 	al_shutdown_primitives_addon();
 	al_shutdown_image_addon();
+	al_shutdown_ttf_addon();
+	al_shutdown_font_addon();
+	al_shutdown_native_dialog_addon();
 	return true;
 }
 
@@ -39,6 +49,12 @@ static void prepare_display(MACHINE* machine, DISPLAY_OPTIONS display_options)
 	machine->display_options = display_options;
 	machine->display = al_create_display(DEFAULT_DISPLAY_WIDTH * display_options.scale, DEFAULT_DISPLAY_HEIGHT * display_options.scale);
 	assert(machine->display);
+	al_set_window_title(machine->display, "C8 - CHIP8 Emulator");
+	/*ALLEGRO_MENU* menu = al_create_menu();
+	ALLEGRO_MENU* file_menu = al_create_menu();
+	al_append_menu_item(file_menu, "Exit", 1, 0, NULL, NULL);
+	al_append_menu_item(menu, "Options", 0, 0, NULL, file_menu);
+	al_set_display_menu(machine->display, menu);*/
 }
 
 static void prepare_bitmaps(MACHINE* machine, DISPLAY_OPTIONS display_options)
@@ -66,7 +82,7 @@ static void prepare_timers(MACHINE* machine)
 
 static void prepare_audio(MACHINE* machine)
 {
-	machine->beep = al_load_sample("sound.wav");
+	machine->beep = al_load_sample("resources/sound.wav");
 	assert(machine->beep);
 	al_reserve_samples(1);
 	machine->beep_playing = false;
@@ -100,16 +116,13 @@ MACHINE* create_machine(DISPLAY_OPTIONS display_options)
 	prepare_timers(machine);
 	prepare_audio(machine);
 	prepare_event_queue(machine);
+	machine->debug = create_debug(machine);
 	srand(time(NULL));
 	return machine;
 }
 
 void delete_machine(MACHINE* machine)
 {
-	al_unregister_event_source(machine->event_queue, al_get_keyboard_event_source());
-	al_unregister_event_source(machine->event_queue, al_get_display_event_source(machine->display));
-	al_unregister_event_source(machine->event_queue, al_get_timer_event_source(machine->counter_timer));
-	al_unregister_event_source(machine->event_queue, al_get_timer_event_source(machine->opcode_timer));
 	al_destroy_event_queue(machine->event_queue);
 	al_destroy_bitmap(machine->pixel_on);
 	al_destroy_bitmap(machine->pixel_off);
@@ -122,6 +135,8 @@ void delete_machine(MACHINE* machine)
 		free(machine->keypad[i]);
 	}
 	free(machine->keypad);
+	delete_debug_thread(machine->debug);
+	delete_debug(machine->debug);
 	free(machine);
 }
 
@@ -171,10 +186,14 @@ void load_program(MACHINE* machine, const char* file_name)
 	fseek(file, 0, SEEK_SET);
 	fread(machine->RAM + PROGRAM_BASE_ADDRESS, BYTE_SIZE, file_size, file);
 	fclose(file);
+	uint16_t opcode = *(uint16_t*)(machine->RAM + machine->pc_reg);
+	opcode = ((opcode >> 8) & 0x00FF) | (opcode << 8);
+	machine->current_opcode = opcode;
 }
 
 static void update_display(MACHINE* machine)
 {
+	al_set_target_backbuffer(machine->display);
 	uint16_t x = 0;
 	for (uint64_t i = (uint64_t)1 << 63; i > 0; i >>= 1)
 	{
@@ -195,6 +214,28 @@ static void update_display(MACHINE* machine)
 	}
 }
 
+static void update_counters(MACHINE* machine)
+{
+	if (machine->d_counter > 0)
+	{
+		machine->d_counter--;
+	}
+	if (machine->s_counter > 0)
+	{
+		if (!machine->beep_playing)
+		{
+			al_play_sample(machine->beep, 1, 0, 1, ALLEGRO_PLAYMODE_LOOP, &machine->beep_id);
+			machine->beep_playing = true;
+		}
+		machine->s_counter--;
+	}
+	else if (machine->beep_playing)
+	{
+		machine->beep_playing = false;
+		al_stop_sample(&machine->beep_id);
+	}
+}
+
 static void handle_timer_events(MACHINE* machine, ALLEGRO_EVENT event)
 {
 	if(event.type != ALLEGRO_EVENT_TIMER)
@@ -208,37 +249,17 @@ static void handle_timer_events(MACHINE* machine, ALLEGRO_EVENT event)
 	}
 	else if (event.timer.source == machine->counter_timer)
 	{
-		if (machine->d_counter > 0)
-		{
-			machine->d_counter--;
-		}
-		if (machine->s_counter > 0)
-		{
-			if (!machine->beep_playing)
-			{
-				al_play_sample(machine->beep, 1, 0, 1, ALLEGRO_PLAYMODE_LOOP, &machine->beep_id);
-				machine->beep_playing = true;
-			}
-			machine->s_counter--;
-		}
-		else if(machine->beep_playing)
-		{
-			machine->beep_playing = false;
-			al_stop_sample(&machine->beep_id);
-		}
+		update_counters(machine);
 		update_display(machine);
+		al_set_target_backbuffer(machine->display);
 		al_flip_display();
 	}
 }
 
-static void handle_keyboard_events(MACHINE* machine, ALLEGRO_EVENT event)
+static void handle_keypad_events(MACHINE* machine, ALLEGRO_EVENT event)
 {
-	switch (event.type)
+	if (event.type != ALLEGRO_EVENT_KEY_DOWN && event.type != ALLEGRO_EVENT_KEY_UP)
 	{
-	case ALLEGRO_EVENT_KEY_DOWN:
-	case ALLEGRO_EVENT_KEY_UP:
-		break;
-	default:
 		return;
 	}
 	for (uint8_t i = 0; i < KEYPAD_HEIGHT; i++)
@@ -254,13 +275,21 @@ static void handle_keyboard_events(MACHINE* machine, ALLEGRO_EVENT event)
 	}
 }
 
+static void handle_keyboard_events(MACHINE* machine, ALLEGRO_EVENT event)
+{
+	handle_keypad_events(machine, event);
+}
+
 void run_program(MACHINE* machine)
 {
+	start_debug_thread(machine->debug);
 	while (true)
 	{
 		ALLEGRO_EVENT event;
 		al_wait_for_event(machine->event_queue, &event);
+		al_lock_mutex(machine->debug->event_mutex);
 		handle_timer_events(machine, event);
 		handle_keyboard_events(machine, event);
+		al_unlock_mutex(machine->debug->event_mutex);
 	}
 }
