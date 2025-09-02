@@ -18,6 +18,17 @@
 #include <stdbool.h>
 #include <time.h>
 
+static void prepare_display(MACHINE* machine, DISPLAY_OPTIONS display_options);
+static void prepare_bitmaps(MACHINE* machine, DISPLAY_OPTIONS display_options);
+static void prepare_timers(MACHINE* machine);
+static void prepare_audio(MACHINE* machine);
+static void prepare_event_queue(MACHINE* machine);
+static void update_display(MACHINE* machine);
+static void update_counters(MACHINE* machine);
+static void handle_timer_events(MACHINE* machine, ALLEGRO_EVENT event);
+static void handle_keypad_events(MACHINE* machine, ALLEGRO_EVENT event);
+static void handle_display_events(MACHINE* machine, ALLEGRO_EVENT event);
+
 bool start_allegro()
 {
 	al_init();
@@ -34,13 +45,13 @@ bool start_allegro()
 
 bool end_allegro()
 {
-	al_uninstall_keyboard();
+	/*al_uninstall_keyboard();
 	al_uninstall_audio();
 	al_shutdown_primitives_addon();
 	al_shutdown_image_addon();
-	al_shutdown_ttf_addon();
 	al_shutdown_font_addon();
-	al_shutdown_native_dialog_addon();
+	al_shutdown_ttf_addon();
+	al_shutdown_native_dialog_addon();*/
 	return true;
 }
 
@@ -50,11 +61,6 @@ static void prepare_display(MACHINE* machine, DISPLAY_OPTIONS display_options)
 	machine->display = al_create_display(DEFAULT_DISPLAY_WIDTH * display_options.scale, DEFAULT_DISPLAY_HEIGHT * display_options.scale);
 	assert(machine->display);
 	al_set_window_title(machine->display, "C8 - CHIP8 Emulator");
-	/*ALLEGRO_MENU* menu = al_create_menu();
-	ALLEGRO_MENU* file_menu = al_create_menu();
-	al_append_menu_item(file_menu, "Exit", 1, 0, NULL, NULL);
-	al_append_menu_item(menu, "Options", 0, 0, NULL, file_menu);
-	al_set_display_menu(machine->display, menu);*/
 }
 
 static void prepare_bitmaps(MACHINE* machine, DISPLAY_OPTIONS display_options)
@@ -102,6 +108,7 @@ MACHINE* create_machine(DISPLAY_OPTIONS display_options)
 {
 	MACHINE* machine = calloc(sizeof(MACHINE), 1);
 	assert(machine);
+	machine->on = true;
 	machine->pc_reg = PROGRAM_BASE_ADDRESS;
 	machine->s_reg = STACK_BASE_ADDRESS;
 
@@ -135,7 +142,6 @@ void delete_machine(MACHINE* machine)
 		free(machine->keypad[i]);
 	}
 	free(machine->keypad);
-	delete_debug_thread(machine->debug);
 	delete_debug(machine->debug);
 	free(machine);
 }
@@ -275,21 +281,30 @@ static void handle_keypad_events(MACHINE* machine, ALLEGRO_EVENT event)
 	}
 }
 
-static void handle_keyboard_events(MACHINE* machine, ALLEGRO_EVENT event)
+static void handle_display_events(MACHINE* machine, ALLEGRO_EVENT event)
 {
-	handle_keypad_events(machine, event);
+	if (event.display.source != machine->display)
+	{
+		return;
+	}
+	switch (event.type)
+	{
+	case ALLEGRO_EVENT_DISPLAY_CLOSE:
+		machine->on = false;
+	}
 }
 
 void run_program(MACHINE* machine)
 {
 	start_debug_thread(machine->debug);
-	while (true)
+	while (machine->on)
 	{
 		ALLEGRO_EVENT event;
 		al_wait_for_event(machine->event_queue, &event);
 		al_lock_mutex(machine->debug->event_mutex);
 		handle_timer_events(machine, event);
-		handle_keyboard_events(machine, event);
+		handle_keypad_events(machine, event);
+		handle_display_events(machine, event);
 		al_unlock_mutex(machine->debug->event_mutex);
 	}
 }

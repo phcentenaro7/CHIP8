@@ -47,6 +47,7 @@
 
 typedef struct MACHINE
 {
+	bool on;
 	int8_t RAM[RAM_SIZE];
 	uint16_t pc_reg; //program counter
 	uint16_t i_reg; //index

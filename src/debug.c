@@ -33,6 +33,7 @@ DEBUG* create_debug(MACHINE* machine)
 {
 	DEBUG* debug = calloc(1, sizeof(DEBUG));
 	assert(debug);
+	debug->on = true;
 	debug->settings = create_default_debug_settings();
 	debug->machine = machine;
 	debug->thread = al_create_thread(handle_events, debug);
@@ -52,6 +53,8 @@ DEBUG* create_debug(MACHINE* machine)
 
 void delete_debug(DEBUG* debug)
 {
+	debug->on = false;
+	al_join_thread(debug->thread, NULL);
 	al_destroy_mutex(debug->event_mutex);
 	al_destroy_event_queue(debug->event_queue);
 	al_destroy_display(debug->display);
@@ -61,7 +64,7 @@ static void* handle_events(ALLEGRO_THREAD* thread, void* debug)
 {
 	DEBUG* dbg = debug;
 	ALLEGRO_EVENT event;
-	while (true)
+	while (dbg->on)
 	{
 		al_wait_for_event(dbg->event_queue, &event);
 		al_lock_mutex(dbg->event_mutex);
@@ -101,11 +104,6 @@ static void handle_keyboard_events(DEBUG* debug, ALLEGRO_EVENT event)
 void start_debug_thread(DEBUG* debug)
 {
 	al_start_thread(debug->thread);
-}
-
-void delete_debug_thread(DEBUG* debug)
-{
-	al_destroy_thread(debug->thread);
 }
 
 static void draw_debug_text(DEBUG* debug)

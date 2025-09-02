@@ -4,6 +4,7 @@
 
 typedef struct DEBUG
 {
+	bool on;
 	DEBUG_SETTINGS settings;
 	ALLEGRO_DISPLAY* display;
 	ALLEGRO_TIMER* refresh_timer;
